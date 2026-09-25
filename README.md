@@ -104,6 +104,8 @@ Treat `true` as the positive class. Report accuracy, macro-F1, per-class precisi
 
 ## License and attribution
 
-No dataset-wide license is specified for this release. This card does not assign a new license to the collected code or discussions. Source repositories are identified in the `repo` field, and PR numbers are available in `pull_request.pull_number`.
+The original dataset contributions, including its selection and arrangement, annotations, and documentation, are licensed under the [Creative Commons Attribution 4.0 International License (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/), to the extent that the dataset contributors hold the relevant rights. See [LICENSE](LICENSE) for the full terms.
 
-When reporting results, refer to the dataset as **CRJudgeBenchmark** and record the dataset revision used for the experiment.
+CC BY 4.0 permits sharing and adaptation, including for commercial purposes, subject to its attribution requirements. Credit **CRJudgeBenchmark**, link to the dataset release used and the license, and indicate any changes. When reporting experimental results, also record the dataset revision.
+
+Third-party code, patches, review comments, issue text, and other collected material remain subject to their original licenses and applicable rights; this release does not relicense them or grant additional rights to them. Source repositories are identified in the `repo` field, and PR numbers are available in `pull_request.pull_number`. Users must comply with any applicable upstream terms.
