@@ -1,37 +1,178 @@
+<div align="center">
+
 # CRJudgeBenchmark
 
-CRJudgeBenchmark evaluates whether a model can judge the technical trustworthiness of a code-review comment in its pull-request context. It contains **1,199 labeled examples from 124 pull requests across 9 GitHub repositories**, with fixed train, validation, and test splits.
+### The review sounds confident. Does the code agree?
 
-Each example pairs a pull request with one target review comment. It includes the PR description, a base commit, a review patch, linked issues, and a PR activity timeline. The binary `trustworthy` label applies only to the comment identified by `judged_entry_id`.
+A benchmark for judging whether a code-review comment is technically trustworthy.
 
-The dataset supports training and evaluating code-review judges, including agents that inspect repository code before making a judgment. It contains examples and labels; agent trajectories, teacher guidance, and model weights are not included.
+**1,199 labeled examples · 124 pull requests · 9 repositories**
 
-## Task and labels
+[Quick start](#quick-start) · [The task](#the-task) · [Dataset](#dataset) · [Evaluation](#evaluation) · [License](#license)
 
-The task is to determine whether the target code-review comment is **technically trustworthy** in its pull-request and file context:
+</div>
 
-- **`true`**: the target comment is technically trustworthy in the given context.
-- **`false`**: the target comment is technically untrustworthy in the given context.
-- General PR comments without a file association are assessed for technical trustworthiness in the overall PR context.
+---
 
-The `trustworthy` label applies to the individual target comment. All released labels are JSON booleans; none are missing.
+Code reviews make claims: a change introduces a bug, a check is missing, an API behaves differently. Deciding whether to trust those claims takes more than reading a convincing explanation. It takes checking the code and its context.
 
-## Dataset splits
+**CRJudgeBenchmark puts the reviewer under review.** Given a pull request and one target comment, a model must decide whether that comment is technically trustworthy. Models can work from the supplied context or inspect the repository before making a judgment.
 
-| Split | Examples | `true` | `false` |
-| --- | ---: | ---: | ---: |
-| Train | 714 | 455 | 259 |
-| Validation | 126 | 80 | 46 |
-| Test | 359 | 229 | 130 |
-| **Total** | **1,199** | **764** | **435** |
+## A tiny taste
 
-Splits are grouped by `(repo, pull_request.pull_number)`. No PR appears in more than one split. Repository identities can recur across splits, so this is a PR-disjoint benchmark rather than an evaluation on entirely unseen repositories.
+Consider this function:
 
-The original train/test split targeted 70%/30% of examples while preserving PR groups and approximately preserving each label's proportion. Validation was then drawn from 15% of the original training pool, leaving the test split unchanged. Both selections used seed 42 and a subset-sum procedure over shuffled PR groups to reach the label-count targets. The final proportions are approximately 59.55% train, 10.51% validation, and 29.94% test.
+```python
+def normalize_names(names):
+    return sorted(name.strip() for name in names)
+```
 
-## Data format
+A reviewer writes:
 
-The release consists of three UTF-8 JSON Lines files in `data/`: `train.jsonl`, `validation.jsonl`, and `test.jsonl`. Each line is one example.
+> “This sorts the caller's list in place, so later code will see the names in a different order.”
+
+Would you trust that comment?
+
+<details>
+<summary><strong>Reveal the judgment</strong></summary>
+
+**`false` — technically untrustworthy.** `sorted(...)` returns a new list. This function does not reorder the caller's list.
+
+The comment describes a plausible bug, but its claim does not match the code. That is the kind of distinction a code-review judge must make.
+
+*This is a simplified illustration, not an example from the released dataset. Benchmark examples include full PR context and a target comment within a review timeline.*
+
+</details>
+
+## The task
+
+**One pull request. One target comment. One boolean judgment.**
+
+| The judge receives | The judge decides |
+| --- | --- |
+| PR title and description, review patch, base commit, and the target review comment | Is this comment technically trustworthy in this context? |
+
+| Label | Meaning |
+| --- | --- |
+| `true` | The target comment is technically trustworthy in the given context. |
+| `false` | The target comment is technically untrustworthy in the given context. |
+
+The label belongs to **the comment identified by `judged_entry_id`**. It does not rate the whole PR or every comment in the discussion. General PR comments without a file association are judged in the overall PR context.
+
+Each example also includes linked issues and a PR activity timeline. These provide additional context, but later replies can reveal the answer; choose and report your context policy when evaluating.
+
+### What you can study
+
+- **Code-review judges:** train or evaluate models that assess technical claims in review comments.
+- **Repository inspection:** compare judgments from the supplied context with judgments made after examining repository code.
+- **Robustness to misleading comments:** examine performance on naturally occurring untrustworthy comments and perturbed comments separately.
+
+This release contains examples and labels. Repository checkouts, agent trajectories, teacher guidance, and model weights are not included.
+
+## Quick start
+
+Download or clone this repository, then run the following from its root. Only Python's standard library is needed.
+
+### 1. Load the splits
+
+```python
+import json
+from pathlib import Path
+
+dataset = {}
+for split in ("train", "validation", "test"):
+    with (Path("data") / f"{split}.jsonl").open(encoding="utf-8") as handle:
+        dataset[split] = [json.loads(line) for line in handle]
+
+print({split: len(rows) for split, rows in dataset.items()})
+# {'train': 714, 'validation': 126, 'test': 359}
+```
+
+### 2. Find the comment to judge
+
+Continue in the same Python session:
+
+```python
+row = dataset["train"][0]
+target = next(
+    entry for entry in row["code_review"]
+    if entry.get("id") == row["judged_entry_id"]
+)
+
+# Build a focused input from an explicit set of fields.
+judge_input = {
+    "repo": row["repo"],
+    "pull_request": {
+        key: row["pull_request"][key]
+        for key in ("title", "body", "base_commit", "patch_to_review")
+    },
+    "target_comment": {
+        key: target.get(key)
+        for key in ("type", "body", "review_path", "diff_hunk")
+    },
+}
+gold_label = row["trustworthy"]  # Keep this in the training/scoring code.
+```
+
+Send `judge_input` to your judge. Keep `gold_label` outside the prompt and agent workspace. A prediction can be represented as `{"prediction": true}` or `{"prediction": false}`.
+
+> **Avoid accidental answer leaks.** Do not pass the entire raw row to a model. Labels, construction metadata, and later discussion entries can give away the answer. The example above selects a focused context; it is not an automatic scrubber for answer-revealing text. See [Evaluation](#evaluation) for the full protocol.
+
+<details>
+<summary>Prefer Hugging Face Datasets?</summary>
+
+With the `datasets` package installed, load the same local files:
+
+```python
+from datasets import load_dataset
+
+dataset = load_dataset(
+    "json",
+    data_files={
+        split: f"data/{split}.jsonl"
+        for split in ("train", "validation", "test")
+    },
+)
+```
+
+</details>
+
+## Dataset
+
+Three UTF-8 JSON Lines files. One example per line. Every released label is a JSON boolean; none are missing.
+
+| Split | File | Examples | `true` | `false` |
+| --- | --- | ---: | ---: | ---: |
+| Train | [train.jsonl](data/train.jsonl) | 714 | 455 | 259 |
+| Validation | [validation.jsonl](data/validation.jsonl) | 126 | 80 | 46 |
+| Test | [test.jsonl](data/test.jsonl) | 359 | 229 | 130 |
+| **Total** | | **1,199** | **764** | **435** |
+
+**No pull request crosses split boundaries.** Splits are grouped by `(repo, pull_request.pull_number)`. Repositories can recur across splits, so this evaluates generalization to held-out PRs, not entirely unseen repositories.
+
+<details>
+<summary>How the splits were constructed</summary>
+
+The original train/test split targeted 70%/30% of examples while preserving PR groups and approximately preserving each label's proportion. Validation was then drawn from 15% of the original training pool, leaving the test split unchanged.
+
+Both selections used seed 42 and a subset-sum procedure over shuffled PR groups to reach the label-count targets. The final proportions are approximately 59.55% train, 10.51% validation, and 29.94% test.
+
+</details>
+
+### Inside an example
+
+| Part | What it contains |
+| --- | --- |
+| **PR context** | Repository, language, PR title and body, base commit, and review patch |
+| **Discussion** | Linked issues and a timeline of comments, reviews, replies, and commits |
+| **Target** | `judged_entry_id`, which selects exactly one comment in `code_review` |
+| **Answer** | `trustworthy`, the gold boolean label for that comment |
+| **Construction metadata** | Identifiers, source information, and optional perturbation type; keep these out of model inputs |
+
+The pair `(instance_id, judged_entry_id)` uniquely identifies all 1,199 examples. `instance_id` alone is not unique. Every example has exactly one matching target entry.
+
+<details>
+<summary>Full field reference</summary>
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -49,60 +190,30 @@ The release consists of three UTF-8 JSON Lines files in `data/`: `train.jsonl`, 
 | `source` | string | Construction provenance; exclude from model inputs. |
 | `perturbation_kind` | optional string | `location`, `negation`, or `symbol`; present only for perturbations in the raw JSONL. |
 
-The pair `(instance_id, judged_entry_id)` uniquely identifies all 1,199 examples. Every example has exactly one matching target entry in its timeline.
-
 Timeline entry types are `inline`, `inline_reply`, `pr_comment`, `review`, and `commit`. Comment entries contain `id`, `body`, `user`, and `created_at`; depending on type, they may also contain `review_path`, `diff_hunk`, `in_reply_to_id`, or `review_state`. Commit entries use `sha` and `message`. Optional fields may load as `None` through tabular dataset libraries.
 
-## Loading the dataset
+</details>
 
-Run the following from the repository root with the `datasets` package installed:
+## Evaluation
 
-```python
-from datasets import load_dataset
+A useful result should show whether a judge can assess the comment from the evidence available to it. Make that evidence explicit.
 
-dataset = load_dataset(
-    "json",
-    data_files={
-        "train": "data/train.jsonl",
-        "validation": "data/validation.jsonl",
-        "test": "data/test.jsonl",
-    },
-)
-print({split: len(rows) for split, rows in dataset.items()})
-# {'train': 714, 'validation': 126, 'test': 359}
+1. **Keep answers private.** Exclude `trustworthy`, `source`, `perturbation_kind`, and original `instance_id` values from model inputs and agent-accessible files. Source tags and perturbation suffixes reveal labels. Use opaque evaluation IDs when needed.
+2. **Define the context.** Later replies or reviews in the raw timeline may reveal the answer. The quick-start input omits other timeline entries, reviewer identities, and review states. Report results using complete timelines separately.
+3. **Track the code version.** For repository inspection, use the recorded `base_commit`. Distinguish evidence from the base version from evidence obtained after applying `patch_to_review`.
+4. **Respect the split.** Use training examples for parameter updates and teacher-generated supervision, validation for model selection, and the fixed test set for final evaluation. Preserve PR groups in derived datasets.
 
-row = dataset["train"][0]
-target = next(
-    entry for entry in row["code_review"]
-    if entry.get("id") == row["judged_entry_id"]
-)
+Treat `true` as the positive class and report:
 
-# Construct a focused input; keep the gold label outside the model prompt.
-judge_input = {
-    "repo": row["repo"],
-    "pull_request": {
-        key: row["pull_request"][key]
-        for key in ("title", "body", "base_commit", "patch_to_review")
-    },
-    "target_comment": {
-        key: target.get(key)
-        for key in ("type", "body", "review_path", "diff_hunk")
-    },
-}
-gold_label = row["trustworthy"]  # For supervision or scoring only.
-```
+| Report | Purpose |
+| --- | --- |
+| Accuracy and macro-F1 | Overall correctness and performance across both classes |
+| Per-class precision and recall | Which judgments the model gets wrong |
+| Invalid or missing prediction counts | How often the judge fails to provide a usable answer |
+| Results by construction source, with sample counts | Performance on naturally occurring versus perturbed examples |
+| Context policy and repository access | What evidence the model could use |
 
-## Evaluation protocol
-
-1. Evaluate the target comment using the rubric above. A prediction can be represented as `{"prediction": true}` or `{"prediction": false}`.
-2. Keep `trustworthy`, `source`, `perturbation_kind`, and original `instance_id` values outside model inputs and agent-accessible files. Perturbation suffixes and source tags reveal labels. Use opaque evaluation IDs if needed.
-3. Specify the context policy. The raw timeline can contain later replies or reviews that reveal the answer. The focused input above omits other timeline entries, reviewer identities, and review states. Results using complete timelines should be reported separately.
-4. For repository inspection, use the recorded `base_commit` and distinguish base-version evidence from evidence obtained after applying `patch_to_review`. Repository checkouts are not bundled with these files.
-5. Use training examples for parameter updates and teacher-generated supervision, validation for model selection, and the fixed test set for final evaluation. Preserve PR groups in any derived data.
-
-Treat `true` as the positive class. Report accuracy, macro-F1, per-class precision and recall, and invalid/missing prediction counts. Source-specific results help distinguish performance on naturally occurring untrustworthy comments from performance on perturbations; include sample counts for each slice.
-
-## License and attribution
+## License
 
 The original dataset contributions, including its selection and arrangement, annotations, and documentation, are licensed under the [Creative Commons Attribution 4.0 International License (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/), to the extent that the dataset contributors hold the relevant rights. See [LICENSE](LICENSE) for the full terms.
 
