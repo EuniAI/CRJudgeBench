@@ -1,27 +1,3 @@
----
-pretty_name: CRJudgeBenchmark
-task_categories:
-  - text-classification
-size_categories:
-  - 1K<n<10K
-tags:
-  - code-review
-  - software-engineering
-  - llm-as-a-judge
-  - benchmark
-  - code
-  - datasets
-configs:
-  - config_name: default
-    data_files:
-      - split: train
-        path: data/train.jsonl
-      - split: validation
-        path: data/validation.jsonl
-      - split: test
-        path: data/test.jsonl
----
-
 # CRJudgeBenchmark
 
 CRJudgeBenchmark evaluates whether a model can judge the technical trustworthiness of a code-review comment in its pull-request context. It contains **1,199 labeled examples from 124 pull requests across 9 GitHub repositories**, with fixed train, validation, and test splits.
