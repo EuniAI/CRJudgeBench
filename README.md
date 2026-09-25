@@ -6,7 +6,7 @@
 
 A benchmark for judging whether a code-review comment is technically trustworthy.
 
-**1,199 labeled examples · 124 pull requests · 9 repositories**
+**1,199 labeled examples**
 
 [Quick start](#quick-start) · [The task](#the-task) · [Dataset](#dataset) · [Evaluation](#evaluation) · [License](#license)
 
