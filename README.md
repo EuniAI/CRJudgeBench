@@ -18,6 +18,10 @@ Code reviews make claims: a change introduces a bug, a check is missing, an API 
 
 **CRJudgeBenchmark puts the reviewer under review.** Given a pull request and one target comment, a model must decide whether that comment is technically trustworthy. Models can work from the supplied context or inspect the repository before making a judgment.
 
+<p align="center">
+  <img src="assets/judge-evaluation.png" alt="Code-review judgment workflow: a pull request and review comments are checked against repository code and tool evidence to assess technical trustworthiness." width="100%">
+</p>
+
 ## A tiny taste
 
 Consider this function:
