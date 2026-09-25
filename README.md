@@ -61,81 +61,26 @@ The label belongs to **the comment identified by `judged_entry_id`**. It does no
 
 Each example also includes linked issues and a PR activity timeline. These provide additional context, but later replies can reveal the answer; choose and report your context policy when evaluating.
 
-### What you can study
-
-- **Code-review judges:** train or evaluate models that assess technical claims in review comments.
-- **Repository inspection:** compare judgments from the supplied context with judgments made after examining repository code.
-- **Robustness to misleading comments:** examine performance on naturally occurring untrustworthy comments and perturbed comments separately.
-
-This release contains examples and labels. Repository checkouts, agent trajectories, teacher guidance, and model weights are not included.
-
 ## Quick start
 
-Download or clone this repository, then run the following from its root. Only Python's standard library is needed.
-
-### 1. Load the splits
+From the repository root, read an example and find its target comment. No extra packages are needed.
 
 ```python
 import json
-from pathlib import Path
 
-dataset = {}
-for split in ("train", "validation", "test"):
-    with (Path("data") / f"{split}.jsonl").open(encoding="utf-8") as handle:
-        dataset[split] = [json.loads(line) for line in handle]
+with open("data/train.jsonl", encoding="utf-8") as f:
+    row = json.loads(next(f))
 
-print({split: len(rows) for split, rows in dataset.items()})
-# {'train': 714, 'validation': 126, 'test': 359}
-```
-
-### 2. Find the comment to judge
-
-Continue in the same Python session:
-
-```python
-row = dataset["train"][0]
 target = next(
     entry for entry in row["code_review"]
     if entry.get("id") == row["judged_entry_id"]
 )
-
-# Build a focused input from an explicit set of fields.
-judge_input = {
-    "repo": row["repo"],
-    "pull_request": {
-        key: row["pull_request"][key]
-        for key in ("title", "body", "base_commit", "patch_to_review")
-    },
-    "target_comment": {
-        key: target.get(key)
-        for key in ("type", "body", "review_path", "diff_hunk")
-    },
-}
-gold_label = row["trustworthy"]  # Keep this in the training/scoring code.
+print(row["pull_request"]["title"])
+print(target["body"])
+gold_label = row["trustworthy"]  # For training or scoring, not the model prompt.
 ```
 
-Send `judge_input` to your judge. Keep `gold_label` outside the prompt and agent workspace. A prediction can be represented as `{"prediction": true}` or `{"prediction": false}`.
-
-> **Avoid accidental answer leaks.** Do not pass the entire raw row to a model. Labels, construction metadata, and later discussion entries can give away the answer. The example above selects a focused context; it is not an automatic scrubber for answer-revealing text. See [Evaluation](#evaluation) for the full protocol.
-
-<details>
-<summary>Prefer Hugging Face Datasets?</summary>
-
-With the `datasets` package installed, load the same local files:
-
-```python
-from datasets import load_dataset
-
-dataset = load_dataset(
-    "json",
-    data_files={
-        split: f"data/{split}.jsonl"
-        for split in ("train", "validation", "test")
-    },
-)
-```
-
-</details>
+Use `data/validation.jsonl` or `data/test.jsonl` to read another split. Judge the target comment with its PR and code context, keeping labels and construction metadata outside model inputs. See [Evaluation](#evaluation) for details.
 
 ## Dataset
 
@@ -199,7 +144,7 @@ Timeline entry types are `inline`, `inline_reply`, `pr_comment`, `review`, and `
 A useful result should show whether a judge can assess the comment from the evidence available to it. Make that evidence explicit.
 
 1. **Keep answers private.** Exclude `trustworthy`, `source`, `perturbation_kind`, and original `instance_id` values from model inputs and agent-accessible files. Source tags and perturbation suffixes reveal labels. Use opaque evaluation IDs when needed.
-2. **Define the context.** Later replies or reviews in the raw timeline may reveal the answer. The quick-start input omits other timeline entries, reviewer identities, and review states. Report results using complete timelines separately.
+2. **Define the context.** Later replies or reviews in the raw timeline may reveal the answer. For a focused context, omit other timeline entries, reviewer identities, and review states. Report results using complete timelines separately.
 3. **Track the code version.** For repository inspection, use the recorded `base_commit`. Distinguish evidence from the base version from evidence obtained after applying `patch_to_review`.
 4. **Respect the split.** Use training examples for parameter updates and teacher-generated supervision, validation for model selection, and the fixed test set for final evaluation. Preserve PR groups in derived datasets.
 
